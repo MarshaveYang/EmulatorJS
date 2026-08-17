@@ -1,269 +1,189 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>EmulatorJS</title>
-        <link rel = icon href = docs/favicon.ico sizes = "16x16 32x32 48x48 64x64" type = image/vnd.microsoft.icon>
-        <meta name = viewport content = "width = device-width, initial-scale = 1">
-        <style>
-             body, html {
-                height: 100%;
-                background-color: black;
-                color: white;
-            }
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>我的 FC 游戏机</title>
+<link rel="stylesheet" href="data/emulator.min.css">
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1d2026;
+    --accent: #4a86e8;
+    --text: #e8e9ec;
+    --text-dim: #8b8f99;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100%;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid #2a2e36;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 8px 0 0;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .game-btn {
+    appearance: none;
+    border: 1px solid #33373f;
+    background: #22252c;
+    color: var(--text);
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  .game-btn:hover { background: #2a2e36; border-color: #3c414a; }
+  .game-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .status-text {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 4px 2px;
+  }
+  #game-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 24px 12px;
+  }
+  #game {
+    width: 100%;
+    max-width: 900px;
+    aspect-ratio: 4 / 3;
+    background: #000;
+  }
+</style>
+</head>
+<body>
 
-            body {
-                margin: 0;
-                overflow: hidden;
-            }
+<div class="topbar">
+  <h1>选择游戏</h1>
+  <div id="game-list"><span class="status-text">正在读取游戏列表…</span></div>
+</div>
 
-            body, #box, #top {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                flex-direction: column;
-            }
+<div id="game-wrap">
+  <div id="game"></div>
+</div>
 
-            #box {
-                color: #aaa;
-                height: 20em;
-                width: 30em;
-                max-width: 80%;
-                max-height: 80%;
-                background-color: #333;
-                border-radius: 0.4em;
-                border: 2px solid #555;
-                position: relative;
-                flex-direction: column;
-                transition-duration: 0.2s;
-                overflow: hidden;
-                font-family: monospace;
-                font-weight: bold;
-                font-size: 20px;
-                margin: 5px;
-                text-align: center;
-                padding: 10px;
-            }
+<script>
+  // ------------------------------------------------------------------
+  // ROM 仓库信息 —— 以后加新游戏只需要往这个仓库传文件，这里不用改
+  // ------------------------------------------------------------------
+  const ROM_OWNER = "MarshaveYang";
+  const ROM_REPO = "roms";
+  const ROM_BRANCH = "main";
 
-            #box:hover, #box[drag] {
-                border-color: #38f;
-                color: #ddd
-            }
+  // 支持的 ROM 扩展名 -> EmulatorJS 核心名称
+  // 以后想支持别的机型，在这里加一行映射就行
+  const EXT_TO_CORE = {
+    nes: "nes", fds: "nes", unif: "nes", unf: "nes",
+    sfc: "snes", smc: "snes", fig: "snes",
+    gb: "gb",
+    gbc: "gbc",
+    gba: "gba",
+  };
 
-            #input {
-                cursor: pointer;
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                height: 100%;
-                opacity: 0;
-            }
+  function extOf(filename) {
+    const parts = filename.split(".");
+    return parts.length > 1 ? parts.pop().toLowerCase() : "";
+  }
 
-            #display {
-                width: 100%;
-                height: 100%
-            }
+  async function fetchGameList() {
+    const api = `https://api.github.com/repos/${ROM_OWNER}/${ROM_REPO}/contents/?ref=${ROM_BRANCH}`;
+    const res = await fetch(api, { headers: { "Accept": "application/vnd.github+json" } });
+    if (!res.ok) {
+      throw new Error(`GitHub API 请求失败 (${res.status})`);
+    }
+    const items = await res.json();
+    return items
+      .filter(item => item.type === "file" && EXT_TO_CORE[extOf(item.name)])
+      .map(item => ({
+        name: item.name.replace(/\.[^.]+$/, ""), // 去掉扩展名做显示名
+        file: item.name,
+        core: EXT_TO_CORE[extOf(item.name)],
+        url: item.download_url, // GitHub API 直接给出正确编码的 raw 地址
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  }
 
-            select, button {
-                padding: 0.6em 0.4em;
-                margin: 0.5em;
-                width: 15em;
-                max-width: 100%;
-                font-family: monospace;
-                font-weight: bold;
-                font-size: 16px;
-                background-color: #444;
-                color: #aaa;
-                border-radius: 0.4em;
-                border: 1px solid #555;
-                cursor: pointer;
-                transition-duration: 0.2s
-            }
+  function startGame(game) {
+    window.EJS_player = "#game";
+    window.EJS_core = game.core;
+    window.EJS_gameName = game.name;
+    window.EJS_gameUrl = game.url;
+    window.EJS_pathtodata = "data/";
+    window.EJS_startOnLoaded = true;
+    window.EJS_backgroundColor = "#000000";
 
-            select:hover, button:hover {
-                background-color: #666;
-                color: #ddd
-            }
+    const loaderScript = document.createElement("script");
+    loaderScript.src = "data/loader.js";
+    document.body.appendChild(loaderScript);
+  }
 
-            .logo {
-                width: 130px;
-                height: 130px;
-                filter: drop-shadow(0 0 10px white);
-            }
+  function renderGameList(games, currentFile) {
+    const listEl = document.getElementById("game-list");
+    listEl.innerHTML = "";
+    games.forEach(g => {
+      const btn = document.createElement("button");
+      btn.className = "game-btn" + (g.file === currentFile ? " active" : "");
+      btn.textContent = g.name;
+      btn.onclick = () => {
+        const url = new URL(location.href);
+        url.searchParams.set("rom", g.file);
+        location.href = url.toString(); // 整页跳转，保证每次都是干净初始化
+      };
+      listEl.appendChild(btn);
+    });
+  }
 
-            #top {
-                margin: 5px;
-            }
-        </style>
-    </head>
+  (async () => {
+    let games;
+    try {
+      games = await fetchGameList();
+    } catch (err) {
+      document.getElementById("game-list").innerHTML =
+        `<span class="status-text">游戏列表加载失败：${err.message}</span>`;
+      return;
+    }
 
-    <body>
-        <div id="top">
-            <h1>EmulatorJS Demo</h1>
-            <img src="docs/Logo-light.png" alt="Logo" class="logo">
-            <br>
-        </div>
-        <div id="box">
-            <input type = file id = input>
-            Drag ROM file or click here
-        </div>
+    if (games.length === 0) {
+      document.getElementById("game-list").innerHTML =
+        `<span class="status-text">仓库里还没有识别到 ROM 文件</span>`;
+      return;
+    }
 
-        <script>
-            let enableDebug = false;
-            let enableThreads = false;
-            const queryString = window.location.search;
-            const urlParams = new URLSearchParams(queryString);
-            if (parseInt(urlParams.get('debug')) === 1 || urlParams.get('debug') === "true") {
-                enableDebug = true;
-                console.log("Debug is enabled");
-            } else {
-                console.log("Debug is disabled");
-            }
+    const params = new URLSearchParams(location.search);
+    const requestedFile = params.get("rom");
+    const currentGame = games.find(g => g.file === requestedFile) || games[0];
 
-            if (parseInt(urlParams.get('threads')) === 1 || urlParams.get('threads') === "true") {
-                if (window.SharedArrayBuffer) {
-                    enableThreads = true;
-                    console.log("Threads are enabled");
-                } else {
-                    console.warn("Threads are disabled as SharedArrayBuffer is not available. Threads requires two headers to be set when sending you html page. See https://stackoverflow.com/a/68630724");
-                    console.log("Threads are disabled");
-                }
-            } else {
-                console.log("Threads are disabled");
-            }
+    renderGameList(games, currentGame.file);
+    startGame(currentGame);
+  })();
+</script>
 
-            if (urlParams.get('rom')) {
-                console.log(`Loading ROM from URL: roms/${urlParams.get('rom')}`);
-                run(false, urlParams.get('rom'));
-            }
-
-            async function run(upload, file) {
-                const url = upload ? input.files[0] : `roms/${file}`;
-                const parts = upload ? input.files[0].name.split(".") : file.split(".");
-
-                const core = await (async (ext) => {
-                    if (["fds", "nes", "unif", "unf"].includes(ext))
-                        return "nes"
-
-                    if (["smc", "fig", "sfc", "gd3", "gd7", "dx2", "bsx", "swc"].includes(ext))
-                        return "snes"
-
-                    if (["z64", "n64"].includes(ext))
-                        return "n64"
-
-                    if (["pce"].includes(ext))
-                        return "pce"
-
-                    if (["ngp", "ngc"].includes(ext))
-                        return "ngp"
-
-                    if (["ws", "wsc"].includes(ext))
-                        return "ws"
-
-                    if (["col", "cv"].includes(ext))
-                        return "coleco"
-
-                    if (["d64"].includes(ext))
-                        return "vice_x64sc"
-
-                    if (["nds", "gba", "gb", "z64", "n64"].includes(ext))
-                        return ext
-
-                    return await new Promise(resolve => {
-                        var coreValues = {
-                            "Nintendo 64": "n64",
-                            "Nintendo Game Boy": "gb",
-                            "Nintendo Game Boy Advance": "gba",
-                            "Nintendo DS": "nds",
-                            "Nintendo Entertainment System": "nes",
-                            "Super Nintendo Entertainment System": "snes",
-                            "PlayStation": "psx",
-                            "Virtual Boy": "vb",
-                            "Sega Mega Drive": "segaMD",
-                            "Sega Master System": "segaMS",
-                            "Sega CD": "segaCD",
-                            "Atari Lynx": "lynx",
-                            "Sega 32X": "sega32x",
-                            "Atari Jaguar": "jaguar",
-                            "Sega Game Gear": "segaGG",
-                            "Sega Saturn": "segaSaturn",
-                            "Atari 7800": "atari7800",
-                            "Atari 2600": "atari2600",
-                            "Arcade": "arcade",
-                            "NEC TurboGrafx-16/SuperGrafx/PC Engine": "pce",
-                            "NEC PC-FX": "pcfx",
-                            "SNK NeoGeo Pocket (Color)": "ngp",
-                            "Bandai WonderSwan (Color)": "ws",
-                            "ColecoVision": "coleco",
-                            "Commodore 64": "vice_x64sc",
-                            "Commodore 128": "vice_x128",
-                            "Commodore VIC20": "vice_xvic",
-                            "Commodore Plus/4": "vice_xplus4",
-                            "Commodore PET": "vice_xpet"
-                        }
-
-                        const cores = Object.keys(coreValues).sort().reduce(
-                            (obj, key) => { 
-                                obj[key] = coreValues[key]; 
-                                return obj;
-                            }, 
-                            {}
-                        );
-
-                        const button = document.createElement("button")
-                        const select = document.createElement("select")
-
-                        for (const type in cores) {
-                            const option = document.createElement("option")
-
-                            option.value = cores[type]
-                            option.textContent = type
-                            select.appendChild(option)
-                        }
-
-                        button.onclick = () => resolve(select[select.selectedIndex].value)
-                        button.textContent = "Load game"
-                        box.innerHTML = ""
-
-                        box.appendChild(select)
-                        box.appendChild(button)
-                    })
-                })(parts.pop())
-
-                const div = document.createElement("div")
-                const sub = document.createElement("div")
-                const script = document.createElement("script")
-
-                sub.id = "game"
-                div.id = "display"
-
-                const top = document.getElementById("top");
-                top.remove();
-                box.remove()
-                div.appendChild(sub)
-                document.body.appendChild(div)
-
-                window.EJS_player = "#game";
-                window.EJS_gameName = parts.shift();
-                window.EJS_biosUrl = "";
-                window.EJS_gameUrl = url;
-                window.EJS_core = core;
-                window.EJS_pathtodata = "data/";
-                window.EJS_startOnLoaded = true;
-                window.EJS_DEBUG_XX = enableDebug;
-                window.EJS_disableDatabases = true;
-                window.EJS_threads = enableThreads;
-
-                script.src = "data/loader.js";
-                document.body.appendChild(script);
-            }
-            
-            input.onchange = async () => {
-                run(true);
-            }
-            
-            box.ondragover = () => box.setAttribute("drag", true);
-            box.ondragleave = () => box.removeAttribute("drag");
-        </script>
-    </body>
+</body>
 </html>
