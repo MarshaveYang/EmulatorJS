@@ -92,40 +92,27 @@
 <script>
   // ------------------------------------------------------------------
   // ROM 仓库信息 —— 以后加新游戏只需要往这个仓库传文件，这里不用改
+  // 文件列表由仓库里的 GitHub Actions 自动生成 games.json，
+  // 这里直接读这个静态清单，不再实时查 GitHub API（避免限流）
   // ------------------------------------------------------------------
   const ROM_OWNER = "MarshaveYang";
   const ROM_REPO = "roms";
   const ROM_BRANCH = "main";
-
-  // 支持的 ROM 扩展名 -> EmulatorJS 核心名称
-  // 以后想支持别的机型，在这里加一行映射就行
-  const EXT_TO_CORE = {
-    nes: "nes", fds: "nes", unif: "nes", unf: "nes",
-    sfc: "snes", smc: "snes", fig: "snes",
-    gb: "gb",
-    gbc: "gbc",
-    gba: "gba",
-  };
-
-  function extOf(filename) {
-    const parts = filename.split(".");
-    return parts.length > 1 ? parts.pop().toLowerCase() : "";
-  }
+  const MANIFEST_URL = `https://raw.githubusercontent.com/${ROM_OWNER}/${ROM_REPO}/${ROM_BRANCH}/games.json`;
+  const RAW_BASE = `https://raw.githubusercontent.com/${ROM_OWNER}/${ROM_REPO}/${ROM_BRANCH}/`;
 
   async function fetchGameList() {
-    const api = `https://api.github.com/repos/${ROM_OWNER}/${ROM_REPO}/contents/?ref=${ROM_BRANCH}`;
-    const res = await fetch(api, { headers: { "Accept": "application/vnd.github+json" } });
+    const res = await fetch(MANIFEST_URL);
     if (!res.ok) {
-      throw new Error(`GitHub API 请求失败 (${res.status})`);
+      throw new Error(`清单读取失败 (${res.status})`);
     }
     const items = await res.json();
     return items
-      .filter(item => item.type === "file" && EXT_TO_CORE[extOf(item.name)])
       .map(item => ({
-        name: item.name.replace(/\.[^.]+$/, ""), // 去掉扩展名做显示名
-        file: item.name,
-        core: EXT_TO_CORE[extOf(item.name)],
-        url: item.download_url, // GitHub API 直接给出正确编码的 raw 地址
+        name: item.name,
+        file: item.file,
+        core: item.core,
+        url: RAW_BASE + encodeURIComponent(item.file),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
   }
